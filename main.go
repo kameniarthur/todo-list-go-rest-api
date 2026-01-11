@@ -37,3 +37,67 @@ func main() {
 
 	log.Println("serveur demarre aur http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", r))
+}
+
+func createTaskHandler(w http.ResposeWriter, r *http.Request) {	
+	var newTask Task
+
+	if err := json.NewDecoder(r.Body).Decode(&newTask); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	newTask.ID = uuid.New().string()
+	tasksMutex.Lock()
+	tasks[newTask.ID] = newTask
+	tasksMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(newTask)
+}
+
+func getTasksHandler(w http.ResponseWriter, r *http.Request) {
+	tasksMutex.Rlock()
+	defer tasksMutex.RUnlock()
+
+	var tasksList []Task
+	for _, task := range tasks {
+		tasksList = append(tasksList, task)
+	}
+	tasksMutex.RUnlock()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tasksList)
+}
+
+func taskDetailHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskID := vars["id"]
+
+	tasksMutex.Lock()
+	defer tasksMutex.Unlock()
+	task, exists := tasks[id]
+	if !exists {
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
+
+	swich r.Method {
+		case http.MethodGet:
+			json.NewEncoder(w).Encode(task)
+		case http.MethodPut:
+			var updatedTask Task
+			if err := json.NewDecoder(r.Body).Decode(&updatedTask); err != nil {
+				http.Error(w, "Invalid request payload", http.StatusBadRequest)
+				return
+			}
+			updatedTask.ID = taskID
+			updatedTask.ownerID = task.ownerID
+			tasks[taskID] = updatedTask
+			json.NewEncoder(w).Encode(updatedTask)
+		case http.MethodDelete:
+			delete(tasks, taskID)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
